@@ -113,9 +113,9 @@ pub fn parse_types_rec<R: gimli::Reader>(
         gimli::DW_TAG_base_type => Some(TypeInfo::<R>::BaseType(parse_base_type(
             &node, dwarf, unit,
         )?)),
-        gimli::DW_TAG_class_type | gimli::DW_TAG_structure_type => Some(TypeInfo::<R>::StructType(
-            parse_partial_struct_type(&node, dwarf, unit)?,
-        )),
+        gimli::DW_TAG_class_type | gimli::DW_TAG_structure_type | gimli::DW_TAG_union_type => Some(
+            TypeInfo::<R>::StructType(parse_partial_struct_type(&node, dwarf, unit)?),
+        ),
         gimli::DW_TAG_enumeration_type => Some(TypeInfo::<R>::EnumerationType(
             parse_partial_enum_type(&node, dwarf, unit)?,
         )),
@@ -125,6 +125,7 @@ pub fn parse_types_rec<R: gimli::Reader>(
         | gimli::DW_TAG_immutable_type
         | gimli::DW_TAG_packed_type
         | gimli::DW_TAG_pointer_type
+        | gimli::DW_TAG_subroutine_type
         | gimli::DW_TAG_reference_type
         | gimli::DW_TAG_restrict_type
         | gimli::DW_TAG_rvalue_reference_type
@@ -136,6 +137,7 @@ pub fn parse_types_rec<R: gimli::Reader>(
                 gimli::DW_TAG_immutable_type => ModifierKind::Immutable,
                 gimli::DW_TAG_packed_type => ModifierKind::Packed,
                 gimli::DW_TAG_pointer_type => ModifierKind::Pointer,
+                gimli::DW_TAG_subroutine_type => ModifierKind::Pointer,
                 gimli::DW_TAG_reference_type => ModifierKind::Reference,
                 gimli::DW_TAG_restrict_type => ModifierKind::Restrict,
                 gimli::DW_TAG_rvalue_reference_type => ModifierKind::RvalueReference,
