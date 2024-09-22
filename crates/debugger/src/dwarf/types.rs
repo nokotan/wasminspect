@@ -67,6 +67,12 @@ pub struct EnumerationTypeInfo<R: gimli::Reader> {
 }
 
 #[derive(Debug)]
+pub struct ArrayTypeInfo<R: gimli::Reader> {
+    pub ty: Option<R::Offset>,
+    pub dimensions: Vec<u64>,
+}
+
+#[derive(Debug)]
 pub struct Enumerator {
     pub name: Option<String>,
     pub value: Option<i64>,
@@ -79,6 +85,9 @@ pub enum TypeInfo<R: gimli::Reader> {
     StructType(StructTypeInfo<R>),
     TypeDef(TypeDef<R>),
     EnumerationType(EnumerationTypeInfo<R>),
+    ArrayType(ArrayTypeInfo<R>),
+}
+
 }
 
 pub fn get_types<R: gimli::Reader>(
@@ -138,6 +147,7 @@ pub fn parse_types_rec<R: gimli::Reader>(
                 kind, &node, unit,
             )?))
         }
+        gimli::DW_TAG_array_type => Some(TypeInfo::ArrayType(parse_array_type(&node, unit)?)),
         gimli::DW_TAG_member => unreachable!(),
         _ => None,
     };
@@ -145,11 +155,13 @@ pub fn parse_types_rec<R: gimli::Reader>(
     let mut children = node.children();
     let mut members = vec![];
     let mut enumerators = vec![];
+    let mut dimensions = vec![];
     while let Some(child) = children.next()? {
         match child.entry().tag() {
             gimli::DW_TAG_member => members.push(parse_member(&child, dwarf, unit)?),
             gimli::DW_TAG_enumerator => enumerators.push(parse_enumerator(&child, dwarf, unit)?),
-            _ => parse_types_rec(child, dwarf, unit, out_type_hash)?,
+            gimli::DW_TAG_subrange_type => dimensions.push(parse_array_count(&child)?),
+            _ => parse_types_rec(child, dwarf, unit, unit_header, out_type_hash)?,
         }
     }
 
@@ -158,6 +170,9 @@ pub fn parse_types_rec<R: gimli::Reader>(
     }
     if let Some(TypeInfo::EnumerationType(ty)) = ty.as_mut() {
         ty.enumerators.append(&mut enumerators);
+    }
+    if let Some(TypeInfo::ArrayType(ty)) = ty.as_mut() {
+        ty.dimensions.append(&mut dimensions);
     }
     if let Some(ty) = ty {
         out_type_hash.insert(offset.to_debug_info_offset(unit_header).0, ty);
@@ -334,4 +349,28 @@ fn parse_enumerator<R: gimli::Reader>(
         .attr_value(gimli::DW_AT_const_value)?
         .and_then(|attr| attr.sdata_value());
     Ok(enumerator)
+}
+
+fn parse_array_type<R: gimli::Reader>(
+    node: &gimli::EntriesTreeNode<R>,
+    unit: &gimli::Unit<R, R::Offset>,
+) -> Result<ArrayTypeInfo<R>> {
+    let ty = match node.entry().attr_value(gimli::DW_AT_type)? {
+        Some(gimli::AttributeValue::UnitRef(ref offset)) => {
+            Some(unit_ref_offset_to_absolute_offset(*offset, &unit))
+        }
+        _ => None,
+    };
+    Ok(ArrayTypeInfo {
+        ty,
+        dimensions: Vec::new(),
+    })
+}
+
+fn parse_array_count<R: gimli::Reader>(node: &gimli::EntriesTreeNode<R>) -> Result<u64> {
+    let count = match node.entry().attr_value(gimli::DW_AT_count)? {
+        Some(v) => v.udata_value().unwrap_or(0),
+        _ => 0,
+    };
+    Ok(count)
 }
