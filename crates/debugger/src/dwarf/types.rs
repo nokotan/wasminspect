@@ -84,17 +84,19 @@ pub enum TypeInfo<R: gimli::Reader> {
 pub fn get_types<R: gimli::Reader>(
     dwarf: &gimli::Dwarf<R>,
     unit: &gimli::Unit<R, R::Offset>,
+    unit_header: &gimli::CompilationUnitHeader<R>,
     out_type_hash: &mut HashMap<R::Offset, TypeInfo<R>>,
 ) -> Result<()> {
     let mut tree = unit.entries_tree(None)?;
     let root = tree.root()?;
-    parse_types_rec(root, dwarf, unit, out_type_hash)?;
+    parse_types_rec(root, dwarf, unit, unit_header, out_type_hash)?;
     Ok(())
 }
 pub fn parse_types_rec<R: gimli::Reader>(
     node: gimli::EntriesTreeNode<R>,
     dwarf: &gimli::Dwarf<R>,
     unit: &gimli::Unit<R, R::Offset>,
+    unit_header: &gimli::CompilationUnitHeader<R>,
     out_type_hash: &mut HashMap<R::Offset, TypeInfo<R>>,
 ) -> Result<()> {
     let offset = node.entry().offset();
@@ -132,7 +134,9 @@ pub fn parse_types_rec<R: gimli::Reader>(
                 gimli::DW_TAG_volatile_type => ModifierKind::Volatile,
                 _ => unreachable!(),
             };
-            Some(TypeInfo::ModifiedType(parse_modified_type(kind, &node)?))
+            Some(TypeInfo::ModifiedType(parse_modified_type(
+                kind, &node, unit,
+            )?))
         }
         gimli::DW_TAG_member => unreachable!(),
         _ => None,
@@ -156,7 +160,7 @@ pub fn parse_types_rec<R: gimli::Reader>(
         ty.enumerators.append(&mut enumerators);
     }
     if let Some(ty) = ty {
-        out_type_hash.insert(offset.0, ty);
+        out_type_hash.insert(offset.to_debug_info_offset(unit_header).0, ty);
     }
     Ok(())
 }
@@ -181,9 +185,12 @@ fn parse_base_type<R: gimli::Reader>(
 fn parse_modified_type<R: gimli::Reader>(
     kind: ModifierKind,
     node: &gimli::EntriesTreeNode<R>,
+    unit: &gimli::Unit<R, R::Offset>,
 ) -> Result<ModifiedTypeInfo<R::Offset>> {
     let ty = match node.entry().attr_value(gimli::DW_AT_type)? {
-        Some(gimli::AttributeValue::UnitRef(ref offset)) => Some(offset.0),
+        Some(gimli::AttributeValue::UnitRef(ref offset)) => {
+            Some(unit_ref_offset_to_absolute_offset(*offset, unit))
+        }
         x => {
             debug!(
                 "Failed to get pointee type: {:?} {:?} {:?}",
@@ -244,7 +251,9 @@ fn parse_member<R: gimli::Reader>(
         None => None,
     };
     let ty = match node.entry().attr_value(gimli::DW_AT_type)? {
-        Some(gimli::AttributeValue::UnitRef(ref offset)) => offset.0,
+        Some(gimli::AttributeValue::UnitRef(ref offset)) => {
+            unit_ref_offset_to_absolute_offset(*offset, &unit)
+        }
         _ => return Err(anyhow!("Failed to get type offset")),
     };
     // DWARF v5 Page 118
@@ -277,7 +286,9 @@ fn parse_typedef<R: gimli::Reader>(
         None => None,
     };
     let ty = match node.entry().attr_value(gimli::DW_AT_type)? {
-        Some(gimli::AttributeValue::UnitRef(ref offset)) => Some(offset.0),
+        Some(gimli::AttributeValue::UnitRef(ref offset)) => {
+            Some(unit_ref_offset_to_absolute_offset(*offset, &unit))
+        }
         _ => None,
     };
     Ok(TypeDef { name, ty })
@@ -293,7 +304,9 @@ fn parse_partial_enum_type<R: gimli::Reader>(
         None => None,
     };
     let ty = match node.entry().attr_value(gimli::DW_AT_type)? {
-        Some(gimli::AttributeValue::UnitRef(ref offset)) => Some(offset.0),
+        Some(gimli::AttributeValue::UnitRef(ref offset)) => {
+            Some(unit_ref_offset_to_absolute_offset(*offset, &unit))
+        }
         _ => None,
     };
     Ok(EnumerationTypeInfo {

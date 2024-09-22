@@ -291,8 +291,10 @@ fn transform_variable<R: gimli::Reader>(
         None => None,
     };
 
-    let ty = match entry.attr_value(gimli::DW_AT_type)? {
-        Some(AttributeValue::UnitRef(ref offset)) => Some(offset.0),
+    let ty: Option<<R as gimli::Reader>::Offset> = match entry.attr_value(gimli::DW_AT_type)? {
+        Some(AttributeValue::UnitRef(ref offset)) => {
+            Some(unit_ref_offset_to_absolute_offset(*offset, &unit))
+        }
         _ => None,
     };
     Ok(SymbolVariable {
